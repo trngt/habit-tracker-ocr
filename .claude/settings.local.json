@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -m src.scanner:*)"
+      "Bash(python -m src.scanner:*)",
+      "Bash(source:*)",
+      "Bash(conda activate:*)"
     ],
     "deny": [],
     "ask": []

@@ -5,7 +5,9 @@ Centralizes all configurable parameters for grid dimensions,
 detection thresholds, and image processing settings.
 """
 
+import cv2
 from pathlib import Path
+from typing import Optional
 
 
 class TrackerConfig:
@@ -27,32 +29,28 @@ class TrackerConfig:
         grid_height: Total grid height in pixels (corrected image)
         fill_threshold: Percentage threshold for detecting filled bubbles (0-1)
         cell_padding: Fraction of cell to ignore at borders (0-1)
-        min_area: Minimum contour area for corner marker detection
-        max_area: Maximum contour area for corner marker detection
-        aspect_ratio_min: Minimum aspect ratio for square markers
-        aspect_ratio_max: Maximum aspect ratio for square markers
+        aruco_dict_type: ArUco dictionary type (e.g., cv2.aruco.DICT_4X4_50)
         output_width: Width of perspective-corrected output image
         output_height: Height of perspective-corrected output image
         output_dir: Directory path for saving output images
+        normalization_threshold: Manual threshold for binary normalization (None=auto)
     """
 
     def __init__(
         self,
         num_rows: int = 31,
-        num_cols: int = 16,
-        grid_left: int = 92,
-        grid_top: int = 373,
-        grid_width: int = 925,
-        grid_height: int = 1737,
+        num_cols: int = 15,
+        grid_left: int = 230,
+        grid_top: int = 450,
+        grid_width: int = 840,
+        grid_height: int = 1690,
         fill_threshold: float = 0.75,
         cell_padding: float = 0.2,
-        min_area: int = 500,
-        max_area: int = 10000,
-        aspect_ratio_min: float = 0.7,
-        aspect_ratio_max: float = 1.3,
+        aruco_dict_type: int = cv2.aruco.DICT_4X4_50,
         output_width: int = 1700,
         output_height: int = 2200,
-        output_dir: str = "./output"
+        output_dir: str = "./output",
+        normalization_threshold: Optional[int] = None
     ):
         """
         Initialize configuration with default or custom parameters.
@@ -60,19 +58,17 @@ class TrackerConfig:
         Args:
             num_rows: Number of grid rows (default: 31 days)
             num_cols: Number of grid columns (default: 16 habits)
-            grid_left: Grid left offset in pixels (default: 150)
-            grid_top: Grid top offset in pixels (default: 400)
-            grid_width: Grid width in pixels (default: 1000)
-            grid_height: Grid height in pixels (default: 1650)
-            fill_threshold: Fill detection threshold 0-1 (default: 0.15)
+            grid_left: Grid left offset in pixels (default: 92)
+            grid_top: Grid top offset in pixels (default: 373)
+            grid_width: Grid width in pixels (default: 925)
+            grid_height: Grid height in pixels (default: 1737)
+            fill_threshold: Fill detection threshold 0-1 (default: 0.75)
             cell_padding: Cell border padding fraction (default: 0.2)
-            min_area: Min marker contour area (default: 500)
-            max_area: Max marker contour area (default: 10000)
-            aspect_ratio_min: Min square aspect ratio (default: 0.7)
-            aspect_ratio_max: Max square aspect ratio (default: 1.3)
+            aruco_dict_type: ArUco dictionary (default: DICT_4X4_50)
             output_width: Corrected image width (default: 1700)
             output_height: Corrected image height (default: 2200)
             output_dir: Output directory path (default: "./output")
+            normalization_threshold: Manual threshold for normalization (default: None=auto)
         """
         self.num_rows = num_rows
         self.num_cols = num_cols
@@ -82,13 +78,11 @@ class TrackerConfig:
         self.grid_height = grid_height
         self.fill_threshold = fill_threshold
         self.cell_padding = cell_padding
-        self.min_area = min_area
-        self.max_area = max_area
-        self.aspect_ratio_min = aspect_ratio_min
-        self.aspect_ratio_max = aspect_ratio_max
+        self.aruco_dict_type = aruco_dict_type
         self.output_width = output_width
         self.output_height = output_height
         self.output_dir = Path(output_dir)
+        self.normalization_threshold = normalization_threshold
 
         # Create output directory if it doesn't exist
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -115,9 +109,6 @@ class TrackerConfig:
         if not 0 <= self.cell_padding < 0.5:
             raise ValueError("Cell padding must be between 0 and 0.5")
 
-        if self.min_area <= 0 or self.max_area <= self.min_area:
-            raise ValueError("Invalid marker area constraints")
-
         if self.output_width <= 0 or self.output_height <= 0:
             raise ValueError("Output dimensions must be positive")
 
@@ -139,13 +130,11 @@ class TrackerConfig:
             'grid_height': self.grid_height,
             'fill_threshold': self.fill_threshold,
             'cell_padding': self.cell_padding,
-            'min_area': self.min_area,
-            'max_area': self.max_area,
-            'aspect_ratio_min': self.aspect_ratio_min,
-            'aspect_ratio_max': self.aspect_ratio_max,
+            'aruco_dict_type': self.aruco_dict_type,
             'output_width': self.output_width,
             'output_height': self.output_height,
-            'output_dir': str(self.output_dir)
+            'output_dir': str(self.output_dir),
+            'normalization_threshold': self.normalization_threshold
         }
 
     @classmethod

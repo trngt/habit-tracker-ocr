@@ -2,6 +2,8 @@ import cv2
 import numpy as np
 from pathlib import Path
 from typing import List, Tuple, Optional
+import matplotlib.pyplot as plt
+import matplotlib
 
 
 class ImageProcessor:
@@ -87,57 +89,77 @@ class ImageProcessor:
 
         return self.grayscale, self.binary
 
-    def detect_corner_markers(self) -> List[Tuple[int, int]]:
+    def detect_aruco_markers(self) -> List[Tuple[int, int]]:
         """
-        Detect the 4 corner calibration markers.
+        Detect the 4 ArUco corner calibration markers.
 
-        Finds square markers at corners of the habit grid using
-        contour detection and filtering by area and aspect ratio.
+        Finds ArUco markers with IDs 0-3 and maps them to corners.
+        ID mapping: 0=TL, 1=TR, 2=BL, 3=BR
 
         Returns:
             List of 4 corner coordinates sorted as:
             [top-left, top-right, bottom-left, bottom-right]
 
         Raises:
-            ValueError: If cannot find exactly 4 valid markers
+            ValueError: If cannot find all 4 required markers (IDs 0,1,2,3)
         """
-        if self.binary is None:
+        if self.grayscale is None:
             raise ValueError("Image not preprocessed. Call preprocess() first.")
 
-        # Find all contours
-        contours, _ = cv2.findContours(self.binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        print(f"Found {len(contours)} contours")
+        # Initialize ArUco detector
+        aruco_dict = cv2.aruco.getPredefinedDictionary(self.config.aruco_dict_type)
+        aruco_params = cv2.aruco.DetectorParameters()
+        detector = cv2.aruco.ArucoDetector(aruco_dict, aruco_params)
 
-        # Filter for marker candidates
-        markers = []
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
+        # Detect markers
+        corners_detected, ids, rejected = detector.detectMarkers(self.grayscale)
 
-            # Filter by area
-            if self.config.min_area < area < self.config.max_area:
-                # Get bounding rectangle
-                x, y, w, h = cv2.boundingRect(cnt)
+        print(f"\n[ArUco Detection]")
+        if ids is not None:
+            print(f"  Found {len(ids)} ArUco marker(s): {ids.flatten().tolist()}")
+        else:
+            raise ValueError("No ArUco markers detected in image")
 
-                # Check if roughly square
-                aspect_ratio = w / h if h > 0 else 0
-                if self.config.aspect_ratio_min < aspect_ratio < self.config.aspect_ratio_max:
-                    # Use center of bounding box as marker position
-                    center_x = x + w // 2
-                    center_y = y + h // 2
-                    markers.append((center_x, center_y, area))
-                    print(f"  Marker candidate at ({center_x}, {center_y}), area={area:.0f}")
+        # Flatten IDs array
+        ids = ids.flatten()
 
-        if len(markers) > 4:
-            # Take the 4 largest markers
-            markers.sort(key=lambda m: m[2], reverse=True)
-            markers = markers[:4]
-            print(f"Found {len(markers)} candidates, using 4 largest")
+        # Check we have all required markers (0, 1, 2, 3)
+        required_ids = {0, 1, 2, 3}
+        found_ids = set(ids.tolist())
+        missing_ids = required_ids - found_ids
 
-        # Remove area from tuples, keep just (x, y)
-        marker_points = [(x, y) for x, y, _ in markers]
+        if missing_ids:
+            raise ValueError(f"Missing required ArUco markers: {sorted(missing_ids)}")
 
-        # Sort markers into consistent order
-        self.corners = self._sort_corners(marker_points)
+        # Map marker IDs to corner positions
+        # Each marker's corners are in order: TL, TR, BR, BL (of the marker itself)
+        # We use the center of each marker as the corner point
+        marker_centers = {}
+
+        for i, marker_id in enumerate(ids):
+            if marker_id in required_ids:
+                # Get the 4 corners of this marker
+                marker_corners = corners_detected[i][0]
+                # Calculate center point
+                center_x = int(np.mean(marker_corners[:, 0]))
+                center_y = int(np.mean(marker_corners[:, 1]))
+                marker_centers[marker_id] = (center_x, center_y)
+                print(f"  Marker ID {marker_id}: center at ({center_x}, {center_y})")
+
+        # Build ordered corner list based on marker IDs
+        # ID 0 = top-left, 1 = top-right, 2 = bottom-left, 3 = bottom-right
+        self.corners = [
+            marker_centers[0],  # top-left
+            marker_centers[1],  # top-right
+            marker_centers[2],  # bottom-left
+            marker_centers[3]   # bottom-right
+        ]
+
+        print(f"\nOrdered corners:")
+        print(f"  Top-left (ID 0):     {self.corners[0]}")
+        print(f"  Top-right (ID 1):    {self.corners[1]}")
+        print(f"  Bottom-left (ID 2):  {self.corners[2]}")
+        print(f"  Bottom-right (ID 3): {self.corners[3]}")
 
         return self.corners
 
@@ -183,47 +205,6 @@ class ImageProcessor:
 
         return self.corrected
 
-    def _sort_corners(self, points: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
-        """
-        Sort 4 corner points into consistent order.
-
-        Internal helper to ensure corners are ordered as:
-        [top-left, top-right, bottom-left, bottom-right]
-
-        Args:
-            points: List of 4 (x, y) coordinates in any order
-
-        Returns:
-            Sorted list of 4 coordinates
-        """
-        # Convert to numpy array
-        pts = np.array(points, dtype=np.float32)
-
-        # Sort by y-coordinate to get top 2 and bottom 2
-        sorted_by_y = pts[np.argsort(pts[:, 1])]
-        top_two = sorted_by_y[:2]
-        bottom_two = sorted_by_y[2:]
-
-        # Sort each pair by x-coordinate
-        top_two = top_two[np.argsort(top_two[:, 0])]
-        bottom_two = bottom_two[np.argsort(bottom_two[:, 0])]
-
-        # Return in order: TL, TR, BL, BR
-        sorted_pts = [
-            tuple(top_two[0]),
-            tuple(top_two[1]),
-            tuple(bottom_two[0]),
-            tuple(bottom_two[1])
-        ]
-
-        print("\nSorted corners:")
-        print(f"  Top-left:     {sorted_pts[0]}")
-        print(f"  Top-right:    {sorted_pts[1]}")
-        print(f"  Bottom-left:  {sorted_pts[2]}")
-        print(f"  Bottom-right: {sorted_pts[3]}")
-
-        return sorted_pts
-
     def get_corrected_image(self) -> Optional[np.ndarray]:
         """
         Retrieve the corrected image.
@@ -235,9 +216,9 @@ class ImageProcessor:
 
     def visualize_corners(self, output_path: str) -> None:
         """
-        Create visualization showing detected corner markers.
+        Create visualization showing detected ArUco corner markers.
 
-        Draws circles and labels at detected corners for debugging.
+        Draws circles and labels at detected corners with ArUco IDs for debugging.
 
         Args:
             output_path: Where to save visualization image
@@ -247,14 +228,14 @@ class ImageProcessor:
 
         vis = self.original.copy()
 
-        # Draw circles at detected corners
+        # Draw circles at detected corners with ArUco IDs
         colors = [(0, 0, 255), (0, 255, 0), (255, 0, 0), (255, 255, 0)]  # BGR
-        labels = ['TL', 'TR', 'BL', 'BR']
+        labels = ['ID:0 (TL)', 'ID:1 (TR)', 'ID:2 (BL)', 'ID:3 (BR)']
 
         for i, (x, y) in enumerate(self.corners):
             cv2.circle(vis, (int(x), int(y)), 20, colors[i], -1)
-            cv2.putText(vis, labels[i], (int(x) - 30, int(y) - 30),
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, colors[i], 2)
+            cv2.putText(vis, labels[i], (int(x) - 50, int(y) - 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, colors[i], 2)
 
         # Draw lines connecting corners
         pts = np.array(self.corners, dtype=np.int32)
@@ -263,3 +244,159 @@ class ImageProcessor:
 
         cv2.imwrite(output_path, vis)
         print(f"Visualization saved to {output_path}")
+
+    def analyze_histogram(self, image: Optional[np.ndarray] = None) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Analyze histogram of pixel intensity values.
+
+        Args:
+            image: Optional grayscale image to analyze (default: uses corrected image)
+
+        Returns:
+            Tuple of (histogram values, bin edges)
+
+        Raises:
+            ValueError: If no image available
+        """
+        if image is None:
+            if self.corrected is None:
+                raise ValueError("No corrected image available. Call apply_perspective_correction() first.")
+            # Convert corrected image to grayscale if needed
+            if len(self.corrected.shape) == 3:
+                image = cv2.cvtColor(self.corrected, cv2.COLOR_BGR2GRAY)
+            else:
+                image = self.corrected
+
+        # Calculate histogram
+        hist = cv2.calcHist([image], [0], None, [256], [0, 256])
+        hist = hist.flatten()
+
+        return hist, np.arange(256)
+
+    def visualize_histogram(self, output_path: str, threshold: Optional[int] = None) -> None:
+        """
+        Create histogram visualization with matplotlib.
+
+        Args:
+            output_path: Where to save histogram figure
+            threshold: Optional threshold value to mark on histogram
+        """
+        # Use matplotlib Agg backend to avoid display issues
+        matplotlib.use('Agg')
+
+        hist, bins = self.analyze_histogram()
+
+        print(f"\n[Histogram Analysis]")
+        print(f"  Pixel intensity range: 0-255")
+        print(f"  Mean intensity: {np.average(bins, weights=hist):.1f}")
+        print(f"  Median intensity: {np.median(np.repeat(bins, hist.astype(int))):.1f}")
+
+        # Create figure
+        fig, ax = plt.subplots(figsize=(12, 6))
+
+        # Plot histogram
+        ax.bar(bins, hist, width=1.0, color='blue', alpha=0.7, label='Pixel Distribution')
+        ax.set_xlabel('Pixel Intensity (0=Black, 255=White)', fontsize=12)
+        ax.set_ylabel('Frequency (Number of Pixels)', fontsize=12)
+        ax.set_title('Pixel Intensity Histogram', fontsize=14, fontweight='bold')
+        ax.grid(True, alpha=0.3)
+
+        # Mark threshold if provided
+        if threshold is not None:
+            ax.axvline(x=threshold, color='red', linestyle='--', linewidth=2,
+                      label=f'Threshold = {threshold}')
+            ax.legend()
+
+        # Add statistics text
+        stats_text = f"Mean: {np.average(bins, weights=hist):.1f}\n"
+        stats_text += f"Median: {np.median(np.repeat(bins, hist.astype(int))):.1f}"
+        ax.text(0.98, 0.95, stats_text,
+               transform=ax.transAxes,
+               verticalalignment='top',
+               horizontalalignment='right',
+               bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5),
+               fontsize=10)
+
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=150)
+        plt.close()
+
+        print(f"  Histogram saved to {output_path}")
+
+    def compute_adaptive_threshold(self) -> int:
+        """
+        Compute optimal threshold using Otsu's method.
+
+        Automatically determines the best threshold to separate
+        foreground (dark marks) from background (white paper).
+
+        Returns:
+            Optimal threshold value (0-255)
+        """
+        if self.corrected is None:
+            raise ValueError("No corrected image available.")
+
+        # Convert to grayscale if needed
+        if len(self.corrected.shape) == 3:
+            gray = cv2.cvtColor(self.corrected, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = self.corrected
+
+        # Use Otsu's method to find optimal threshold
+        threshold, _ = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        threshold = threshold * 0.50
+
+        print(f"\n[Adaptive Threshold]")
+        print(f"  50% Otsu's threshold: {threshold:.0f}")
+
+        return int(threshold)
+
+    def normalize_image(self, threshold: Optional[int] = None, use_binary: bool = True) -> np.ndarray:
+        """
+        Normalize image using adaptive thresholding or specified threshold.
+
+        Creates a pure binary image (black=0, white=255) that separates
+        filled marks from background/grid, reducing shadow effects.
+
+        Args:
+            threshold: Optional manual threshold (default: use Otsu's method)
+            use_binary: If True, creates pure binary image. If False, returns CLAHE equalized.
+
+        Returns:
+            Binary normalized image (0 or 255 only)
+        """
+        if self.corrected is None:
+            raise ValueError("No corrected image available.")
+
+        # Convert to grayscale if needed
+        if len(self.corrected.shape) == 3:
+            gray = cv2.cvtColor(self.corrected, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = self.corrected
+
+        print(f"\n[Image Normalization]")
+
+        # Apply adaptive histogram equalization first to reduce shadow effects
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        equalized = clahe.apply(gray)
+        print(f"  Applied CLAHE (Contrast Limited Adaptive Histogram Equalization)")
+
+        if not use_binary:
+            return equalized
+
+        # Determine threshold on the equalized image
+        if threshold is None:
+            # Re-compute threshold on equalized image for better separation
+            threshold, _ = cv2.threshold(equalized, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            print(f"  Otsu's threshold on equalized image: {threshold:.0f}")
+
+        print(f"  Using threshold: {threshold}")
+
+        # Apply binary threshold to create pure black/white image
+        # THRESH_BINARY: pixels > threshold become white (255), others become black (0)
+        _, binary = cv2.threshold(equalized, threshold, 255, cv2.THRESH_BINARY)
+
+        print(f"  Created pure binary image (black=0, white=255)")
+        print(f"  Goal: grid lines = white, filled marks = black (inverted later for detection)")
+
+        return binary
