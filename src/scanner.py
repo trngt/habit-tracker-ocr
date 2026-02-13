@@ -244,7 +244,18 @@ class HabitTrackerScanner:
 def main():
     """
     Main function to run the habit tracker scanner.
+
+    Usage: python -m src.scanner <image_path>
     """
+    import sys
+
+    if len(sys.argv) != 2:
+        print("Usage: python -m src.scanner <image_path>")
+        print("Example: python -m src.scanner ./input/version_2_filled3.jpg")
+        sys.exit(1)
+
+    image_path = sys.argv[1]
+
     # Configuration
     config = TrackerConfig(
         output_dir="./output"
@@ -253,8 +264,7 @@ def main():
     # Initialize scanner
     scanner = HabitTrackerScanner(config)
 
-    # Scan the sample image
-    image_path = "./input/version_2_filled3.jpg"
+    # Scan the provided image
     scanner.scan(image_path)
 
 
