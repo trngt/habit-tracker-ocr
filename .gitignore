@@ -62,3 +62,5 @@ output/
 # Large input files (uncomment if needed)
 # input/*.jpg
 # input/*.png
+
+.claude

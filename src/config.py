@@ -34,6 +34,8 @@ class TrackerConfig:
         output_height: Height of perspective-corrected output image
         output_dir: Directory path for saving output images
         normalization_threshold: Manual threshold for binary normalization (None=auto)
+        header_top: Y offset for top of column header region
+        header_height: Height of the column header region in pixels
     """
 
     def __init__(
@@ -44,13 +46,15 @@ class TrackerConfig:
         grid_top: int = 450,
         grid_width: int = 840,
         grid_height: int = 1690,
-        fill_threshold: float = 0.75,
+        fill_threshold: float = 0.1,
         cell_padding: float = 0.2,
         aruco_dict_type: int = cv2.aruco.DICT_4X4_50,
         output_width: int = 1700,
         output_height: int = 2200,
         output_dir: str = "./output",
-        normalization_threshold: Optional[int] = None
+        normalization_threshold: Optional[int] = None,
+        header_top: int = 200,
+        header_height: int = 250
     ):
         """
         Initialize configuration with default or custom parameters.
@@ -69,6 +73,8 @@ class TrackerConfig:
             output_height: Corrected image height (default: 2200)
             output_dir: Output directory path (default: "./output")
             normalization_threshold: Manual threshold for normalization (default: None=auto)
+            header_top: Y offset for column header region (default: 100)
+            header_height: Height of column header region (default: 350)
         """
         self.num_rows = num_rows
         self.num_cols = num_cols
@@ -83,6 +89,8 @@ class TrackerConfig:
         self.output_height = output_height
         self.output_dir = Path(output_dir)
         self.normalization_threshold = normalization_threshold
+        self.header_top = header_top
+        self.header_height = header_height
 
         # Create output directory if it doesn't exist
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -134,7 +142,9 @@ class TrackerConfig:
             'output_width': self.output_width,
             'output_height': self.output_height,
             'output_dir': str(self.output_dir),
-            'normalization_threshold': self.normalization_threshold
+            'normalization_threshold': self.normalization_threshold,
+            'header_top': self.header_top,
+            'header_height': self.header_height
         }
 
     @classmethod

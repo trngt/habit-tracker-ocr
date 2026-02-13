@@ -1,3 +1,9 @@
+import os
+# Set environment variables before any torch import to avoid hardware instruction errors
+os.environ['PYTORCH_ENABLE_NNPACK'] = '0'
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+
 import pandas as pd
 from typing import Optional
 from pathlib import Path
@@ -5,6 +11,7 @@ from pathlib import Path
 from .config import TrackerConfig
 from .image_processor import ImageProcessor
 from .grid_bubble_detector import GridBubbleDetector
+from .column_header_reader import ColumnHeaderReader
 
 
 class HabitTrackerScanner:
@@ -20,6 +27,8 @@ class HabitTrackerScanner:
         config: TrackerConfig instance with grid parameters
         image_processor: ImageProcessor instance for image operations
         grid_bubble_detector: GridBubbleDetector instance for detection
+        column_header_reader: ColumnHeaderReader instance for OCR
+        column_names: List of detected column header names
     """
     
     def __init__(self, config: TrackerConfig):
@@ -33,6 +42,8 @@ class HabitTrackerScanner:
         self.config.validate()
         self.image_processor = ImageProcessor(config)
         self.grid_bubble_detector = GridBubbleDetector(config)
+        self.column_header_reader = ColumnHeaderReader(config)
+        self.column_names = []
         self.results = None
         
     def scan(self, image_path: str) -> pd.DataFrame:
@@ -67,22 +78,22 @@ class HabitTrackerScanner:
         self.image_processor.detect_aruco_markers()
 
         # Visualize detection
-        output_path = self.config.output_dir / "detected_markers.jpg"
+        output_path = self.config.output_dir / "1_detected_markers.jpg"
         self.image_processor.visualize_corners(str(output_path))
 
         print("\n[Step 3] Applying perspective correction...")
         corrected = self.image_processor.apply_perspective_correction()
 
         # Save corrected image
-        output_path = self.config.output_dir / "corrected_grid.jpg"
+        output_path = self.config.output_dir / "2_corrected_grid.jpg"
         import cv2
         cv2.imwrite(str(output_path), corrected)
         print(f"\nCorrected image saved to {output_path}")
 
         # Also save grayscale version
         corrected_gray = cv2.cvtColor(corrected, cv2.COLOR_BGR2GRAY)
-        cv2.imwrite(str(self.config.output_dir / "corrected_grid_gray.jpg"), corrected_gray)
-        print(f"Grayscale version saved to corrected_grid_gray.jpg")
+        cv2.imwrite(str(self.config.output_dir / "2_corrected_grid_gray.jpg"), corrected_gray)
+        print(f"Grayscale version saved to 2_corrected_grid_gray.jpg")
 
         # Step 3.5: Histogram analysis and image normalization
         print("\n[Step 3.5] Analyzing histogram and normalizing image...")
@@ -95,14 +106,14 @@ class HabitTrackerScanner:
             threshold = self.image_processor.compute_adaptive_threshold()
 
         # Visualize histogram with threshold marked
-        output_path = self.config.output_dir / "histogram.png"
+        output_path = self.config.output_dir / "3_histogram.png"
         self.image_processor.visualize_histogram(str(output_path), threshold)
 
         # Normalize image to pure binary (black/white only)
         normalized = self.image_processor.normalize_image(threshold, use_binary=True)
 
         # Save normalized image
-        output_path = self.config.output_dir / "normalized_image.jpg"
+        output_path = self.config.output_dir / "3_normalized_image.jpg"
         cv2.imwrite(str(output_path), normalized)
         print(f"Normalized image saved to {output_path}")
 
@@ -111,18 +122,33 @@ class HabitTrackerScanner:
         self.grid_bubble_detector.calculate_grid_cells()
 
         # Visualize grid positioning
-        output_path = self.config.output_dir / "grid_annotation.jpg"
+        output_path = self.config.output_dir / "4_grid_annotation.jpg"
         self.grid_bubble_detector.visualize_grid(str(output_path), corrected)
 
         # Step 5: Bubble detection
         detection_results = self.grid_bubble_detector.detect_all_bubbles()
 
         # Create visualizations
-        output_path = self.config.output_dir / "bubble_detection.jpg"
+        output_path = self.config.output_dir / "5_bubble_detection.jpg"
         self.grid_bubble_detector.visualize_detection(str(output_path), corrected)
 
-        output_path = self.config.output_dir / "fill_ratios_heatmap.jpg"
+        output_path = self.config.output_dir / "5_fill_ratios_heatmap.jpg"
         self.grid_bubble_detector.create_fill_ratio_heatmap(str(output_path))
+
+        # Step 5.5: Extract and save rotated header region for debugging
+        output_path = self.config.output_dir / "5.5_header_rotated.jpg"
+        # self.column_header_reader.save_rotated_header_image(corrected, str(output_path))
+
+        # Step 6: Read column headers with OCR
+        # self.column_names = self.column_header_reader.read_all_columns(corrected)
+
+        # Create column header visualization
+        # output_path = self.config.output_dir / "6_column_headers.jpg"
+        # self.column_header_reader.visualize_header_regions(str(output_path), corrected)
+
+        # Create debug image showing extracted slices
+        # output_path = self.config.output_dir / "6_column_headers_debug.jpg"
+        # self.column_header_reader.create_header_debug_image(str(output_path), corrected)
 
         # Print summary
         self._print_results_summary(detection_results)
@@ -133,14 +159,6 @@ class HabitTrackerScanner:
         print("\n" + "=" * 60)
         print("SUCCESS! Bubble detection complete.")
         print("=" * 60)
-        print("\nGenerated files:")
-        print("  - detected_markers.jpg      (corner marker detection)")
-        print("  - corrected_grid.jpg        (perspective-corrected image)")
-        print("  - histogram.png             (pixel intensity distribution)")
-        print("  - normalized_image.jpg      (contrast-enhanced image)")
-        print("  - grid_annotation.jpg       (grid cell positioning)")
-        print("  - bubble_detection.jpg      (annotated with detected fills)")
-        print("  - fill_ratios_heatmap.jpg   (heatmap showing fill ratios)")
 
         return self.results
     
@@ -152,6 +170,15 @@ class HabitTrackerScanner:
             pandas DataFrame with detection results from last scan
         """
         return self.results
+
+    def get_column_names(self) -> list:
+        """
+        Retrieve the detected column header names.
+
+        Returns:
+            List of column names from last scan
+        """
+        return self.column_names
 
     def _validate_image_path(self, image_path: str) -> Path:
         """
@@ -191,12 +218,25 @@ class HabitTrackerScanner:
         print(f"\nTotal days with activity: {len(detection_results)}")
         print(f"Total filled bubbles: {sum(len(cols) for cols in detection_results.values())}")
 
+        if self.column_names and any(self.column_names):
+            print("\nDetected column names:")
+            for i, name in enumerate(self.column_names):
+                if name:
+                    print(f"  Column {i + 1}: {name}")
+
         print("\nDetailed results:")
         for day in sorted(detection_results.keys()):
             habit_cols = detection_results[day]
-            # Convert to 1-indexed for display
-            habit_numbers = [col + 1 for col in habit_cols]
-            print(f"  Day {day:2d}: Habits {habit_numbers}")
+            # Convert to 1-indexed for display, include names if available
+            if self.column_names and any(self.column_names):
+                habit_info = []
+                for col in habit_cols:
+                    name = self.column_names[col] if col < len(self.column_names) and self.column_names[col] else f"#{col + 1}"
+                    habit_info.append(name)
+                print(f"  Day {day:2d}: {habit_info}")
+            else:
+                habit_numbers = [col + 1 for col in habit_cols]
+                print(f"  Day {day:2d}: Habits {habit_numbers}")
 
         print("=" * 60)
 
@@ -214,7 +254,7 @@ def main():
     scanner = HabitTrackerScanner(config)
 
     # Scan the sample image
-    image_path = "./input/version_2_filled.jpg"
+    image_path = "./input/version_2_filled3.jpg"
     scanner.scan(image_path)
 
 

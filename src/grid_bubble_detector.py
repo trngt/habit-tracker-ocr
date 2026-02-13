@@ -249,11 +249,33 @@ class GridBubbleDetector:
             cv2.putText(vis, f"{habit}", (label_x, label_y),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
 
+        # Draw column header boxes
+        header_y1 = self.config.header_top
+        header_y2 = header_y1 + self.config.header_height
+        col_width = self.config.grid_width / self.config.num_cols
+
+        # Draw overall header region boundary in magenta
+        cv2.rectangle(vis, (grid_x1, header_y1), (grid_x2, header_y2), (255, 0, 255), 2)
+
+        # Draw individual column header boxes
+        for col in range(self.config.num_cols):
+            col_x1 = int(self.config.grid_left + col * col_width)
+            col_x2 = int(self.config.grid_left + (col + 1) * col_width)
+            # Draw column header box in cyan
+            cv2.rectangle(vis, (col_x1, header_y1), (col_x2, header_y2), (255, 200, 0), 1)
+            # Add column number label inside header box
+            label_x = col_x1 + int(col_width / 2) - 5
+            label_y = header_y2 - 10
+            cv2.putText(vis, f"{col + 1}", (label_x, label_y),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 255), 1)
+
         # Add title and info
         cv2.putText(vis, "Grid Cell Annotation", (20, 40),
                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 2)
         cv2.putText(vis, f"{self.config.num_rows} days x {self.config.num_cols} habits",
                    (20, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1)
+        cv2.putText(vis, f"Header region: y={header_y1}-{header_y2}",
+                   (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 1)
 
         cv2.imwrite(output_path, vis)
         print(f"  Grid visualization saved to {output_path}")
